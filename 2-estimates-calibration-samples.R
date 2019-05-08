@@ -81,14 +81,20 @@ write_csv(missing_polls_pan_ratio, "data_output/calibration_estimates/missing_po
 
 process_sample_hmm <- function(path) {
     sample <- read_csv(path) 
-    estimation_hmm <- mrp_estimation(sample,  ... = pri_pvem:otros,
+    frame_sample <- gto_2012 %>% 
+        anti_join(sample, by = "casilla_id") %>% 
+        mutate_at(vars(pri_pvem:otros), function(x) NA) %>% 
+        bind_rows(sample)
+    estimation_hmm <- mrp_estimation(frame_sample,  party = pri_pvem:otros,
         stratum = distrito_loc_17, 
-        n_iter = 3000, n_burnin = 1500, n_chains = 1,
+        n_iter = 3000, n_burnin = 2000, n_chains = 1,
         parallel = TRUE)
+    print(estimation_hmm$post_summary)
     estimation_hmm$post_summary %>% 
         mutate(n_sample = parse_number(basename(path))) %>% 
         select(n_sample, party, est = mean_post, LI = int_l, LS = int_r)
 }
+
 
 complete_hmm <- map_df(paths_complete, process_sample_hmm)
 write_csv(complete_hmm, "data_output/calibration_estimates/complete_hmm.csv")
@@ -103,97 +109,66 @@ missing_polls_pan_hmm <- map_df(paths_missing_polls_pan, process_sample_hmm)
 write_csv(missing_polls_pan_hmm, "data_output/calibration_estimates/missing_polls_pan_hmm.csv")
 
 
-### gráficas calibración
-library(fs)
-resultados_gto <- path("data/calib_gto")
-csvs_le <- dir_ls(resultados_gto, regexp = "_le")
-gto_le <- csvs_le %>% 
-    map_df(read_csv, .id = "tipo") %>% 
+### plots
+gto_calib <- map_df(dir_ls("data_output/calibration_estimates"), read_csv, 
+    .id = "file_path") %>% 
     mutate(
-        tipo = str_extract(basename(tipo), "^.*(?=(_gto))"), 
-        metodo = "NNP"
-    ) 
-
-csvs_ma <- dir_ls(resultados_gto, regexp = "anzarut")
-gto_ma <- map_df(csvs_ma, read_csv, .id = "tipo") %>% 
-    mutate(
-        tipo = str_extract(basename(tipo), "^.*(?=(_gto))"), 
-        metodo = "Heavy-MM"
-    ) 
-
-rds_razon <- dir_ls(resultados_gto, regexp = "razon")
-gto_razon <- map_df(rds_razon, read_rds, .id = "tipo") %>% 
-    mutate(
-        tipo = str_extract(basename(tipo), "^.*(?=(_gto))"), 
-        tipo = str_replace(tipo, "razon_", ""),
-        tipo = ifelse(tipo == "completos", "completas", tipo),
-        metodo = "Ratio", 
-        n_muestra = parse_number(path_file(nom_sim)), 
-        LI = r - 2 * std_error, 
-        LS = r + 2 * std_error
-    ) %>% 
-    select(tipo, n_muestra, partido = party, est = r, LI, LS, tipo, metodo)
-
-gto_calib_ma_le_razon <- bind_rows(gto_ma, gto_le, gto_razon)
-
+        file_name = basename(file_path), 
+        type_sim = case_when(
+            str_detect(file_name, "complete") ~ "complete", 
+            str_detect(file_name, "2012") ~ "2012-trends",
+            str_detect(file_name, "polls") ~ "polls-biased",
+            str_detect(file_name, "strata") ~ "strata-biased"
+        ),
+        method = case_when(
+            str_detect(file_name, "hmm") ~ "Heavy-MM", 
+            str_detect(file_name, "nnp") ~ "NNP",
+            str_detect(file_name, "ratio") ~ "Ratio"
+        )
+        ) 
 actual <- gto_2012 %>% 
-    gather(partido, n_votes, pri_pvem:otros) %>% 
-    group_by(partido) %>% 
+    gather(party, n_votes, pri_pvem:otros) %>% 
+    group_by(party) %>% 
     summarise(n_votes = sum(n_votes)) %>% 
     mutate(rank = rank(-n_votes)) %>% 
     ungroup() %>% 
     mutate(prop_votes = 100 * n_votes / sum(n_votes))
 
-gto_calib <- gto_calib_ma_le_razon %>% 
-    left_join(actual, by = "partido") %>% 
+gto_calib <- gto_calib %>% 
+    left_join(actual, by = "party") %>% 
     mutate(
         precision = (LS - LI) / 2,
-        cubre = LI < prop_votes & LS > prop_votes, 
-        n_muestra_factor = reorder(factor(n_muestra), precision)
+        covers = LI < prop_votes & LS > prop_votes
     )
 
-tab_coberturas <- gto_calib %>% 
-    group_by(metodo, partido, tipo) %>% 
+coverage_precision <- gto_calib %>% 
+    group_by(method, party, type_sim) %>% 
     summarise(
-        cobertura = round(100 * mean(cubre)) 
-    ) 
-
-tab_precisiones <- gto_calib %>% 
-    group_by(metodo, partido, tipo) %>% 
-    summarise(
+        coverage = round(100 * mean(covers)),
         precision = round(mean(precision), 2)
-    ) 
-
-tab_cob_pres <- tab_coberturas %>% 
-    left_join(tab_precisiones, by = c("partido", "tipo", "metodo")) %>% 
-    filter(partido != "Otros") %>% 
+    ) %>% 
     ungroup() %>% 
+    filter(party != "otros", party != "participacion") %>% 
     mutate(
-        tipo = case_when(
-            tipo == "completas" ~ "complete",
-            tipo == "faltantes_casilla" ~ "missing polls",
-            tipo == "faltantes_estrato" ~ "missing strata"
-        ), 
-        tipo = factor(tipo, c("complete", "missing polls", 
-            "missing strata")), 
-        partido = case_when(
-            partido == "mc" ~ "MC",
-            partido == "otros" ~ "Other",
-            partido == "pan_na" ~ "PAN",
-            partido == "prd" ~ "PRD",
-            partido == "pri_pvem" ~ "PRI",
-            partido == "pt" ~ "PT"
+        type_sim = factor(type_sim, c("complete", "2012-trends", 
+            "polls-biased", "strata-biased")), 
+        party = case_when(
+            party == "mc" ~ "MC",
+            party == "pan_na" ~ "PAN",
+            party == "prd" ~ "PRD",
+            party == "pri_pvem" ~ "PRI",
+            party == "pt" ~ "PT"
         )) 
 
 party_colors <- c(PAN = "#3399FF", PRI = "#00CD66", PRD = "#FFCC00", PT = "red",
     MC = "#80DEEA", Other = "blue")
 
-calib_gto <- ggplot(filter(tab_cob_pres, partido != "Other"), aes(x = metodo, 
+calib_gto <- ggplot(coverage_precision, aes(x = method, 
     y = precision, 
-    fill = reorder(partido, precision))) +
+    fill = reorder(party, precision))) +
     geom_col(position = "dodge", show.legend = FALSE) +
-    facet_wrap(~tipo, ncol = 1) + 
-    geom_text(aes(label = cobertura), position = position_dodge(width = 1), 
+    facet_wrap(~type_sim, ncol = 1) + 
+    geom_text(aes(label = coverage), position = position_dodge(width = 1), 
         vjust = 0, size = 3, color = "gray20", hjust = 0.5) +
     scale_fill_manual(values = party_colors) +
     # theme_minimal() +
@@ -211,14 +186,12 @@ ggsave(calib_gto, filename = "img/calib_gto.eps", device = "eps", width = 5,
 
 
 library(scales)
-tab_cob_pres <- tab_cob_pres %>% 
-    filter(partido != "Other") %>% 
-    mutate(metodo = factor(metodo, levels = c("Ratio", "NNP", "Heavy-MM")))
-ggplot(tab_cob_pres, aes(x = metodo, y = cobertura, 
-    fill = reorder(partido, cobertura))) +
+
+ggplot(coverage_precision, aes(x = method, y = coverage, 
+    fill = reorder(party, coverage))) +
     geom_hline(yintercept = 95, color = "red", size = 0.3) +
     geom_col(position = "dodge", show.legend = FALSE, alpha = 0.8) +
-    facet_wrap(~tipo, ncol = 1) + 
+    facet_wrap(~type_sim, ncol = 1) + 
     geom_text(aes(label = precision), position = position_dodge(width = 1), 
         vjust = 0, size = 3, color = "gray20", hjust = 0.5) +
     scale_fill_manual(values = party_colors) +
