@@ -86,7 +86,8 @@ llegada_distrito <- remesas_gto_2012 %>%
 # tenía todo
 llegada_distrito %>% 
     gather(horario, p_llegada, remesa_2030:remesa_2330) %>% 
-    ggplot(aes(x = reorder(horario, p_llegada), y = p_llegada,  color = factor(rural))) +
+    ggplot(aes(x = reorder(horario, p_llegada), y = p_llegada,
+        color = factor(rural))) +
     geom_boxplot() 
 
 # usamos corte de las 22:00
@@ -101,6 +102,19 @@ seleccionar_muestras_2200 <- function(i, muestra){
 }
 set.seed(98713)
 muestras_2200 <- map2(1:100, completas, ~seleccionar_muestras_2200(.x, .y))
+
+# usamos corte de las 20:30
+seleccionar_muestras_2030 <- function(i, muestra){
+    muestra_f <- select_sample_str(sampling_frame = muestra, 
+        allocation = select(llegada_distrito, distrito_rural, remesa_2030), 
+        sample_size = remesa_2030, stratum = distrito_rural, is_frac = TRUE)
+    write_csv(select(muestra_f, -distrito_rural), 
+        path = stringr::str_c("data_output/calibration_samples/missing_polls_2012_2030/missing_polls_2012_2030_", 
+            i, ".csv"))
+    return(muestra_f)
+}
+set.seed(98713)
+muestras_2030 <- map2(1:100, completas, ~seleccionar_muestras_2030(.x, .y))
 
 # 3. 100 muestras faltantes 3 estratos
 seleccionar_muestras_sesgo <- function(i, muestra){
@@ -132,16 +146,36 @@ set.seed(8931828)
 muestras_sesgo_casilla <- map2(1:100, completas, 
     ~seleccionar_muestras_sesgo_casilla(.x, .y))
 
+# seleccionar con distinta prob de acuerdo a tipo_seccion
+seleccionar_muestras_sesgo_tipo <- function(i, muestra){
+    tipo_seccion_prob <- tibble(tipo_seccion = c("M", "R", "U"), 
+        prob_miss = c(2, 1, 3))
+    muestra_s <- muestra %>% 
+        left_join(tipo_seccion_prob, by = "tipo_seccion") %>% 
+        mutate(prob_miss = ifelse(is.na(prob_miss), 2, prob_miss)) %>% 
+        sample_frac(size = 0.80, weight = prob_miss)
+    write_csv(select(muestra_s, -distrito_rural), 
+        path = stringr::str_c("data_output/calibration_samples/missing_polls_type/missing_polls_type_", 
+            i, ".csv"))
+    return(muestra_s)
+}
+
+set.seed(180983)
+muestras_sesgo_tipo <- map2(1:100, completas, 
+    ~seleccionar_muestras_sesgo_tipo(.x, .y))
 
 map_dbl(completas, ~n_distinct(.$distrito_loc_17)) %>% table()
 map_dbl(muestras_2200, ~n_distinct(.$distrito_loc_17)) %>% table()
 map_dbl(muestras_sesgo, ~n_distinct(.$distrito_loc_17)) %>% table()
 map_dbl(muestras_sesgo_casilla, ~n_distinct(.$distrito_loc_17)) %>% table()
+map_dbl(muestras_sesgo_tipo, ~n_distinct(.$distrito_loc_17)) %>% table()
+
 
 map_dbl(completas, nrow) %>% mean()
 map_dbl(muestras_2200, nrow) %>% mean()
 map_dbl(muestras_sesgo, nrow) %>% mean()
 map_dbl(muestras_sesgo_casilla, nrow) %>% mean()
+map_dbl(muestras_sesgo_tipo, nrow) %>% mean()
 
 compara <- tibble(
     completa = map_dbl(completas, ~sum(.$pan_na) / sum(.$total)), 

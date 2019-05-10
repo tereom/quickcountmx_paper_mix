@@ -1,14 +1,19 @@
 library(quickcountmx)
 library(tidyverse)
+library(fs)
 
 # samples
 paths_complete <- list.files("data_output/calibration_samples/complete", 
     full.names = TRUE)
 paths_missing_polls_2012 <- list.files("data_output/calibration_samples/missing_polls_2012_trends", 
     full.names = TRUE)
+paths_missing_polls_2012_2030 <- list.files("data_output/calibration_samples/missing_polls_2012_2030", 
+    full.names = TRUE)
 paths_missing_strata_pan <- list.files("data_output/calibration_samples/missing_strata_pan", 
     full.names = TRUE)
 paths_missing_polls_pan <- list.files("data_output/calibration_samples/missing_polls_pan", 
+    full.names = TRUE)
+paths_missing_polls_type <- list.files("data_output/calibration_samples/missing_polls_type", 
     full.names = TRUE)
 
 ####### NNP (normal no-pooling)
@@ -31,12 +36,17 @@ write_csv(complete_nnp, "data_output/calibration_estimates/complete_nnp.csv")
 missing_2012_nnp <- map_df(paths_missing_polls_2012, process_sample_nnp)
 write_csv(missing_2012_nnp, "data_output/calibration_estimates/missing_polls_2012_trends_nnp.csv")
 
+missing_2012_2030_nnp <- map_df(paths_missing_polls_2012_2030, process_sample_nnp)
+write_csv(missing_2012_2030_nnp, "data_output/calibration_estimates/missing_polls_2012_2030_nnp.csv")
+
 missing_strata_pan_nnp <- map_df(paths_missing_strata_pan, process_sample_nnp)
 write_csv(missing_strata_pan_nnp, "data_output/calibration_estimates/missing_strata_pan_nnp.csv")
 
 missing_polls_pan_nnp <- map_df(paths_missing_polls_pan, process_sample_nnp)
 write_csv(missing_polls_pan_nnp, "data_output/calibration_estimates/missing_polls_pan_nnp.csv")
 
+missing_polls_type_nnp <- map_df(paths_missing_polls_type, process_sample_nnp)
+write_csv(missing_polls_type_nnp, "data_output/calibration_estimates/missing_polls_type_nnp.csv")
 
 ######## Ratio
 process_sample_ratio <- function(path) {
@@ -71,16 +81,26 @@ write_csv(complete_ratio, "data_output/calibration_estimates/complete_ratio.csv"
 missing_2012_ratio <- map_df(paths_missing_polls_2012, process_sample_ratio)
 write_csv(missing_2012_ratio, "data_output/calibration_estimates/missing_polls_2012_trends_ratio.csv")
 
-missing_strata_pan_ratio <- map_df(paths_missing_strata_pan, process_sample_ratio)
+missing_2012_2030_ratio <- map_df(paths_missing_polls_2012_2030, process_sample_ratio)
+write_csv(missing_2012_2030_ratio, "data_output/calibration_estimates/missing_polls_2012_2030_ratio.csv")
+
+missing_strata_pan_ratio <- map_df(paths_missing_strata_pan, 
+    process_sample_ratio)
 write_csv(missing_strata_pan_ratio, "data_output/calibration_estimates/missing_strata_pan_ratio.csv")
 
-missing_polls_pan_ratio <- map_df(paths_missing_polls_pan, process_sample_ratio)
+missing_polls_pan_ratio <- map_df(paths_missing_polls_pan, 
+    process_sample_ratio)
 write_csv(missing_polls_pan_ratio, "data_output/calibration_estimates/missing_polls_pan_ratio.csv")
+
+missing_polls_type_ratio <- map_df(paths_missing_polls_type, 
+    process_sample_ratio)
+write_csv(missing_polls_type_ratio, "data_output/calibration_estimates/missing_polls_type_ratio.csv")
 
 #### Heavy MM
 
 process_sample_hmm <- function(path) {
     sample <- read_csv(path) 
+    print(path)
     frame_sample <- gto_2012 %>% 
         anti_join(sample, by = "casilla_id") %>% 
         mutate_at(vars(pri_pvem:otros), function(x) NA) %>% 
@@ -89,7 +109,6 @@ process_sample_hmm <- function(path) {
         stratum = distrito_loc_17, 
         n_iter = 3000, n_burnin = 2000, n_chains = 1,
         parallel = TRUE)
-    print(estimation_hmm$post_summary)
     estimation_hmm$post_summary %>% 
         mutate(n_sample = parse_number(basename(path))) %>% 
         select(n_sample, party, est = mean_post, LI = int_l, LS = int_r)
@@ -102,11 +121,17 @@ write_csv(complete_hmm, "data_output/calibration_estimates/complete_hmm.csv")
 missing_2012_hmm <- map_df(paths_missing_polls_2012, process_sample_hmm)
 write_csv(missing_2012_hmm, "data_output/calibration_estimates/missing_polls_2012_trends_hmm.csv")
 
+missing_2012_2030_hmm <- map_df(paths_missing_polls_2012_2030, process_sample_hmm)
+write_csv(missing_2012_2030_hmm, "data_output/calibration_estimates/missing_polls_2012_2030_hmm.csv")
+
 missing_strata_pan_hmm <- map_df(paths_missing_strata_pan, process_sample_hmm)
 write_csv(missing_strata_pan_hmm, "data_output/calibhration_estimates/missing_strata_pan_hmm.csv")
 
 missing_polls_pan_hmm <- map_df(paths_missing_polls_pan, process_sample_hmm)
 write_csv(missing_polls_pan_hmm, "data_output/calibration_estimates/missing_polls_pan_hmm.csv")
+
+missing_polls_type_hmm <- map_df(paths_missing_polls_type, process_sample_hmm)
+write_csv(missing_polls_type_hmm, "data_output/calibration_estimates/missing_polls_type_hmm.csv")
 
 
 ### plots
@@ -116,7 +141,9 @@ gto_calib <- map_df(dir_ls("data_output/calibration_estimates"), read_csv,
         file_name = basename(file_path), 
         type_sim = case_when(
             str_detect(file_name, "complete") ~ "complete", 
+            str_detect(file_name, "2030") ~ "2012-trends-2030", 
             str_detect(file_name, "2012") ~ "2012-trends",
+            str_detect(file_name, "type") ~ "polls-type",
             str_detect(file_name, "polls") ~ "polls-biased",
             str_detect(file_name, "strata") ~ "strata-biased"
         ),
@@ -151,7 +178,7 @@ coverage_precision <- gto_calib %>%
     filter(party != "otros", party != "participacion") %>% 
     mutate(
         type_sim = factor(type_sim, c("complete", "2012-trends", 
-            "polls-biased", "strata-biased")), 
+            "2012-trends-2030", "polls-biased", "strata-biased", "polls-type")), 
         party = case_when(
             party == "mc" ~ "MC",
             party == "pan_na" ~ "PAN",
@@ -174,15 +201,12 @@ calib_gto <- ggplot(coverage_precision, aes(x = method,
     # theme_minimal() +
     labs(fill = "", x = "", y = "precision") +
     theme(text = element_text(size = 12)) +
-    scale_y_continuous(breaks = c(0, 0.5, 1), limits = c(0, 1.25))
+    scale_y_continuous(breaks = c(0, 0.5, 1), limits = c(0, 1.35))
 
 # ggplot(filter(tab_cob_pres, partido != "Other"), aes(x = cobertura, 
 #     y = precision, color = partido)) +
 #     geom_point() +
 #     facet_grid(metodo ~ tipo)
-
-ggsave(calib_gto, filename = "img/calib_gto.eps", device = "eps", width = 5, 
-    height = 4.5, units = "in")
 
 
 library(scales)
