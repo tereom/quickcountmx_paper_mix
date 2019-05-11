@@ -7,17 +7,26 @@
 ## Sample frame: gto_2012 (included in package quickcountmx)
 # quickcountmx (devotos::github_install("tereom/quickcountmx")
 ## Sample selection
-# We create 3 scenarios with different missing data patterns:
-# 1) Complete sample: 100 samples are selected, stratified random samples where
-# the stratifying variable is federal district.
-# 2) Muestra faltantes_casilla: se seleccionaron 100 muestras censurando las 
-#   muestras completas del inciso anterior, donde la probabilidad de que una 
-#   casilla sea censurada considera los patrones observados en las remesas 2012 
-#   con corte a las 22:00 horas.
-# 3) Muestra faltantes_estrato: se seleccionaron 100 muestras censurando las 
-#   muestras completas del inciso 1), en este caso se eliminan 3 estratos por 
-#   muestra. Los estratos a censurar se seleccionan con probabilidad 
-#   proporcional a los votos recibidos por el PAN en el estrato.
+# We create 5 scenarios with different missing data patterns:
+# 1. Complete data: 100 stratified random samples each consisting of 507 polling 
+#   stations.
+# 2. Trends 22:00: We censor the 100 complete data samples as follows. We 
+#   partition the polling stations by local district and type (rural/no-rural), 
+#   we then use the information of the 2012 federal election to compute the 
+#   proportion of polling stations that arrived before 22:00 in each cell. 
+#   Finally, for each of the complete samples, we sample each polling station 
+#   with probability according to the observed proportion of the cell. The 
+#   average size of the resulting samples is 445 polling stations.
+# 3. Trends 20:30: We repeat the same procedure as the one in Trends 22:00 for 
+#   20:30. The average size of the resulting samples is  262 polling stations.
+# 4. Strata biased: We delete all the polling stations from three strata, 
+#   selecting the censored strata independetly for each sample with probability 
+#   proportional to the observed proportion of votes in the strata for the mayor 
+#   candidate. The resulting samples average 438 polling stations.
+# 5.Polls biased: We delete 15% of the polling stations of each sample. The 
+#   probability of not observing a given polling station is considered 
+#   proportional to the observed proportion of votes in the strata for the mayor 
+#   candidate. The final sample size consisits of 431 polling stations.
 
 library(quickcountmx)
 library(tidyverse)
@@ -166,16 +175,16 @@ muestras_sesgo_tipo <- map2(1:100, completas,
 
 map_dbl(completas, ~n_distinct(.$distrito_loc_17)) %>% table()
 map_dbl(muestras_2200, ~n_distinct(.$distrito_loc_17)) %>% table()
+map_dbl(muestras_2030, ~n_distinct(.$distrito_loc_17)) %>% table()
 map_dbl(muestras_sesgo, ~n_distinct(.$distrito_loc_17)) %>% table()
 map_dbl(muestras_sesgo_casilla, ~n_distinct(.$distrito_loc_17)) %>% table()
-map_dbl(muestras_sesgo_tipo, ~n_distinct(.$distrito_loc_17)) %>% table()
 
 
 map_dbl(completas, nrow) %>% mean()
 map_dbl(muestras_2200, nrow) %>% mean()
+map_dbl(muestras_2030, nrow) %>% mean()
 map_dbl(muestras_sesgo, nrow) %>% mean()
 map_dbl(muestras_sesgo_casilla, nrow) %>% mean()
-map_dbl(muestras_sesgo_tipo, nrow) %>% mean()
 
 compara <- tibble(
     completa = map_dbl(completas, ~sum(.$pan_na) / sum(.$total)), 
