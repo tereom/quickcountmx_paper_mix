@@ -2,7 +2,7 @@ library(quickcountmx)
 library(tidyverse)
 library(fs)
 
-# samples
+# Paths to samples
 paths_complete <- list.files("data_output/calibration_samples/complete", 
     full.names = TRUE)
 paths_missing_polls_2012 <- list.files("data_output/calibration_samples/missing_polls_2012_trends", 
@@ -12,8 +12,6 @@ paths_missing_polls_2012_2030 <- list.files("data_output/calibration_samples/mis
 paths_missing_strata_pan <- list.files("data_output/calibration_samples/missing_strata_pan", 
     full.names = TRUE)
 paths_missing_polls_pan <- list.files("data_output/calibration_samples/missing_polls_pan", 
-    full.names = TRUE)
-paths_missing_polls_type <- list.files("data_output/calibration_samples/missing_polls_type", 
     full.names = TRUE)
 
 ####### NNP (normal no-pooling)
@@ -44,9 +42,6 @@ write_csv(missing_strata_pan_nnp, "data_output/calibration_estimates/missing_str
 
 missing_polls_pan_nnp <- map_df(paths_missing_polls_pan, process_sample_nnp)
 write_csv(missing_polls_pan_nnp, "data_output/calibration_estimates/missing_polls_pan_nnp.csv")
-
-missing_polls_type_nnp <- map_df(paths_missing_polls_type, process_sample_nnp)
-write_csv(missing_polls_type_nnp, "data_output/calibration_estimates/missing_polls_type_nnp.csv")
 
 ######## Ratio
 process_sample_ratio <- function(path) {
@@ -92,9 +87,6 @@ missing_polls_pan_ratio <- map_df(paths_missing_polls_pan,
     process_sample_ratio)
 write_csv(missing_polls_pan_ratio, "data_output/calibration_estimates/missing_polls_pan_ratio.csv")
 
-missing_polls_type_ratio <- map_df(paths_missing_polls_type, 
-    process_sample_ratio)
-write_csv(missing_polls_type_ratio, "data_output/calibration_estimates/missing_polls_type_ratio.csv")
 
 #### Heavy MM
 
@@ -130,9 +122,6 @@ write_csv(missing_strata_pan_hmm, "data_output/calibhration_estimates/missing_st
 missing_polls_pan_hmm <- map_df(paths_missing_polls_pan, process_sample_hmm)
 write_csv(missing_polls_pan_hmm, "data_output/calibration_estimates/missing_polls_pan_hmm.csv")
 
-missing_polls_type_hmm <- map_df(paths_missing_polls_type, process_sample_hmm)
-write_csv(missing_polls_type_hmm, "data_output/calibration_estimates/missing_polls_type_hmm.csv")
-
 
 ### plots
 gto_calib <- map_df(dir_ls("data_output/calibration_estimates"), read_csv, 
@@ -141,9 +130,8 @@ gto_calib <- map_df(dir_ls("data_output/calibration_estimates"), read_csv,
         file_name = basename(file_path), 
         type_sim = case_when(
             str_detect(file_name, "complete") ~ "complete", 
-            str_detect(file_name, "2030") ~ "2012-trends-2030", 
-            str_detect(file_name, "2012") ~ "2012-trends",
-            str_detect(file_name, "type") ~ "polls-type",
+            str_detect(file_name, "2030") ~ "trends 20:30", 
+            str_detect(file_name, "2012") ~ "trends 22:00",
             str_detect(file_name, "polls") ~ "polls-biased",
             str_detect(file_name, "strata") ~ "strata-biased"
         ),
@@ -175,31 +163,43 @@ coverage_precision <- gto_calib %>%
         precision = round(mean(precision), 2)
     ) %>% 
     ungroup() %>% 
-    filter(party != "otros", party != "participacion") %>% 
+    filter(party != "participacion") %>% 
     mutate(
-        type_sim = factor(type_sim, c("complete", "2012-trends", 
-            "2012-trends-2030", "polls-biased", "strata-biased", "polls-type")), 
+        type_sim = factor(type_sim, c("complete", "trends 22:00", 
+            "trends 20:30", "strata-biased", "polls-biased")), 
+        method = factor(method, c("Ratio", "NNP", "Heavy-MM")),
         party = case_when(
             party == "mc" ~ "MC",
             party == "pan_na" ~ "PAN",
             party == "prd" ~ "PRD",
             party == "pri_pvem" ~ "PRI",
-            party == "pt" ~ "PT"
-        )) 
+            party == "pt" ~ "PT", 
+            party == "otros" ~ "Other"
+        )) %>% 
+    filter(type_sim != "polls-type")
 
 party_colors <- c(PAN = "#3399FF", PRI = "#00CD66", PRD = "#FFCC00", PT = "red",
-    MC = "#80DEEA", Other = "blue")
+    MC = "#80DEEA", Other = "gray")
+
+party_labels <- c(
+    `MC` = "A",
+    `PT` = "B",
+    `Other` = "C",
+    `PRD` = "D",
+    `PRI` = "E",
+    `PAN` = "F"
+)
 
 calib_gto <- ggplot(coverage_precision, aes(x = method, 
     y = precision, 
     fill = reorder(party, precision))) +
-    geom_col(position = "dodge", show.legend = FALSE) +
+    geom_col(position = "dodge", show.legend = TRUE) +
     facet_wrap(~type_sim, ncol = 1) + 
     geom_text(aes(label = coverage), position = position_dodge(width = 1), 
         vjust = 0, size = 3, color = "gray20", hjust = 0.5) +
-    scale_fill_manual(values = party_colors) +
+    scale_fill_manual(values = party_colors, labels = party_labels) +
     # theme_minimal() +
-    labs(fill = "", x = "", y = "precision") +
+    labs(fill = "Candidate", x = "", y = "precision") +
     theme(text = element_text(size = 12)) +
     scale_y_continuous(breaks = c(0, 0.5, 1), limits = c(0, 1.35))
 
@@ -213,18 +213,20 @@ library(scales)
 
 ggplot(coverage_precision, aes(x = method, y = coverage, 
     fill = reorder(party, coverage))) +
+    # fill = factor(party, c("MC", "PT", "Other", "PRD", "PRI", "PAN")))) +
     geom_hline(yintercept = 95, color = "red", size = 0.3) +
-    geom_col(position = "dodge", show.legend = FALSE, alpha = 0.8) +
+    geom_col(position = "dodge", show.legend = TRUE, alpha = 0.8) +
     facet_wrap(~type_sim, ncol = 1) + 
-    geom_text(aes(label = precision), position = position_dodge(width = 1), 
+    geom_text(aes(label = round(precision, 1)), 
+        position = position_dodge(width = 1), 
         vjust = 0, size = 3, color = "gray20", hjust = 0.5) +
-    scale_fill_manual(values = party_colors) +
-    # theme_minimal() +
-    labs(fill = "", x = "", y = "coverage") +
+    scale_fill_manual(values = party_colors, labels = party_labels) +
+    theme_minimal() +
+    labs(fill = "Candidate", x = "", y = "coverage") +
     theme(text = element_text(size = 12)) +
     scale_y_continuous(limits = c(60, 110), breaks = seq(60, 100, 10),
         oob = rescale_none)
 
 ggsave(filename = "img/calib_coverage_gto.pdf", device = "pdf", 
-    width = 5, height = 4.5, units = "in")
+    width = 6.3, height = 5.8, units = "in")
 
